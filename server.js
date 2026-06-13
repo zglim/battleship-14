@@ -2,7 +2,6 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const path = require('path');
-const e = require('express');
 
 const app = express();
 const server = http.createServer(app);
@@ -21,7 +20,10 @@ const gameState = {
     ships: {
         red: [],
         blue: []
-    }
+    },
+    battleLog: [],    // 战报日志，按时间顺序
+    turnCount: 1,     // 当前回合数（红蓝各行动一次算一回合）
+    lastBlow: null    // 最后一击信息（用于结算面板）
 };
 
 // 船只类型定义
@@ -42,11 +44,14 @@ const SHIP_COUNTS = {
     COMBAT_BOAT: 2
 };
 
+// 颜色中文名映射
+const COLOR_NAME = { red: '红方', blue: '蓝方' };
+
 // 生成船只列表
 function generateShipList(color) {
     const ships = [];
     let shipId = 1;
-    
+
     for (const [typeKey, count] of Object.entries(SHIP_COUNTS)) {
         const shipType = SHIP_TYPES[typeKey];
         for (let i = 1; i <= count; i++) {
@@ -70,7 +75,7 @@ function generateShipList(color) {
             shipId++;
         }
     }
-    
+
     return ships;
 }
 
@@ -78,18 +83,30 @@ function generateShipList(color) {
 function generateObstacles() {
     const obstacles = [];
     const obstacleCount = Math.floor(Math.random() * 12) + 5; // 5-16个障碍
-    
+
     for (let i = 0; i < obstacleCount; i++) {
         let x, y;
         do {
             x = Math.floor(Math.random() * (gameState.boardSize - 8)) + 4;
             y = Math.floor(Math.random() * gameState.boardSize);
         } while (obstacles.some(obs => obs.x === x && obs.y === y));
-        
+
         obstacles.push({ x, y });
     }
-    
+
     return obstacles;
+}
+
+// 添加战报条目（去重 + 广播）
+function addBattleLog(entry) {
+    const logEntry = Object.assign({
+        timestamp: Date.now(),
+        turn: gameState.turnCount,
+        phase: gameState.gamePhase
+    }, entry);
+    gameState.battleLog.push(logEntry);
+    io.emit('battleLogUpdate', gameState.battleLog);
+    return logEntry;
 }
 
 // 初始化游戏
@@ -99,6 +116,9 @@ function initializeGame() {
     gameState.gamePhase = 'setup';
     gameState.ships.red = generateShipList('red');
     gameState.ships.blue = generateShipList('blue');
+    gameState.battleLog = [];
+    gameState.turnCount = 1;
+    gameState.lastBlow = null;
 }
 
 // Socket.io连接处理
@@ -121,11 +141,11 @@ io.on('connection', (socket) => {
     socket.on('placeShip', (data) => {
         const player = gameState.players[socket.id];
         if (!player || gameState.gamePhase !== 'setup') return;
-    
+
         // 找到对应的船只
         const ship = gameState.ships[player.color].find(s => s.id === data.shipId);
         if (!ship || ship.placed) return;
-    
+
         // 验证船只位置
         if (isValidShipPlacement(data, player.color)) {
             ship.x = data.x;
@@ -133,16 +153,29 @@ io.on('connection', (socket) => {
             ship.direction = data.direction;
             ship.placed = true;
             ship.ready = true;
-            
+
             socket.emit('shipPlaced', ship);
-            socket.broadcast.emit('opponentShipPlaced', { 
-                color: player.color, 
-                shipCount: gameState.ships[player.color].filter(s => s.placed).length 
+            socket.broadcast.emit('opponentShipPlaced', {
+                color: player.color,
+                shipCount: gameState.ships[player.color].filter(s => s.placed).length
             });
-            
+
+            // 记录战报：船只放置
+            addBattleLog({
+                type: 'place',
+                color: player.color,
+                colorName: COLOR_NAME[player.color],
+                shipId: ship.id,
+                shipName: ship.name,
+                x: ship.x,
+                y: ship.y,
+                direction: ship.direction,
+                message: `${COLOR_NAME[player.color]} 放置了 ${ship.name} 于 (${ship.x},${ship.y})`
+            });
+
             // 向所有客户端发送完整的游戏状态更新
             io.emit('gameStateUpdate', gameState);
-            
+
             // 检查是否所有船只都已放置
             checkSetupCompletion();
         }
@@ -158,13 +191,13 @@ io.on('connection', (socket) => {
             });
             return;
         }
-        
+
         const result = processShipAction(data, player.color);
-        
+
         if (result.success) {
             // 广播更新后的游戏状态
             io.emit('gameStateUpdate', gameState);
-            
+
             // 发送动作结果（包含动画信息和可能的攻击细节）
             socket.emit('actionResult', Object.assign({
                 success: true,
@@ -187,11 +220,34 @@ io.on('connection', (socket) => {
         if (!player || gameState.gamePhase !== 'playing' || gameState.currentTurn !== player.color) return;
         // 如果不是当前回合玩家，直接返回
         if (player.color !== currentPlayer) return;
-        
+
+        // 记录战报：手动结束回合
+        addBattleLog({
+            type: 'endTurn',
+            color: gameState.currentTurn,
+            colorName: COLOR_NAME[gameState.currentTurn],
+            turn: gameState.turnCount,
+            manual: true,
+            message: `${COLOR_NAME[gameState.currentTurn]} 手动结束回合（第 ${gameState.turnCount} 回合）`
+        });
+
         // 切换回合
         gameState.currentTurn = gameState.currentTurn === 'red' ? 'blue' : 'red';
+        // 每完成一轮（蓝方回合结束）增加回合计数
+        if (gameState.currentTurn === 'red') {
+            gameState.turnCount++;
+        }
         // 重置当前玩家所有船只的行动状态
         resetShipActions(gameState.currentTurn);
+
+        addBattleLog({
+            type: 'turnStart',
+            color: gameState.currentTurn,
+            colorName: COLOR_NAME[gameState.currentTurn],
+            turn: gameState.turnCount,
+            message: `第 ${gameState.turnCount} 回合开始，${COLOR_NAME[gameState.currentTurn]} 行动`
+        });
+
         io.emit('turnChanged', gameState.currentTurn);
         io.emit('gameStateUpdate', gameState);
     });
@@ -224,13 +280,13 @@ function isValidShipPlacement(data, color) {
         // 检查是否在正确的一侧（红方左侧，蓝方右侧）
         const validX = color === 'red' ? checkX < 8 : checkX >= 8;
         if (!validX) return false;
-        
+
         // 检查边界
         if (checkX >= gameState.boardSize || checkY >= gameState.boardSize) return false;
-        
+
         // 检查障碍物
         if (gameState.obstacles.some(obs => obs.x === checkX && obs.y === checkY)) return false;
-        
+
         // 检查其他船只
         if (gameState.ships[color].some(existingShip => {
             if (!existingShip.placed || existingShip.id === ship.id) return false;
@@ -242,7 +298,7 @@ function isValidShipPlacement(data, color) {
             return false;
         })) return false;
     }
-    
+
     return true;
 }
 
@@ -250,16 +306,49 @@ function isValidShipPlacement(data, color) {
 function checkSetupCompletion() {
     const redShipsPlaced = gameState.ships.red.filter(s => s.placed).length;
     const blueShipsPlaced = gameState.ships.blue.filter(s => s.placed).length;
-    
+
     const totalShips = Object.values(SHIP_COUNTS).reduce((a, b) => a + b, 0);
-    
+
+    // 当某方全部放置完成时记录战报
+    if (redShipsPlaced === totalShips) {
+        const alreadyLogged = gameState.battleLog.some(
+            e => e.type === 'setupComplete' && e.color === 'red'
+        );
+        if (!alreadyLogged) {
+            addBattleLog({
+                type: 'setupComplete',
+                color: 'red',
+                colorName: '红方',
+                message: '红方 全部船只放置完成！'
+            });
+        }
+    }
+    if (blueShipsPlaced === totalShips) {
+        const alreadyLogged = gameState.battleLog.some(
+            e => e.type === 'setupComplete' && e.color === 'blue'
+        );
+        if (!alreadyLogged) {
+            addBattleLog({
+                type: 'setupComplete',
+                color: 'blue',
+                colorName: '蓝方',
+                message: '蓝方 全部船只放置完成！'
+            });
+        }
+    }
+
     // 检查玩家连接状态
     const redPlayerConnected = Object.values(gameState.players).some(p => p.color === 'red');
     const bluePlayerConnected = Object.values(gameState.players).some(p => p.color === 'blue');
-    
-    if (redShipsPlaced === totalShips && blueShipsPlaced === totalShips && 
+
+    if (redShipsPlaced === totalShips && blueShipsPlaced === totalShips &&
         redPlayerConnected && bluePlayerConnected) {
         gameState.gamePhase = 'playing';
+        addBattleLog({
+            type: 'gameStart',
+            turn: 1,
+            message: '战斗开始！红方先手行动'
+        });
         io.emit('gameStarted', gameState);
     }
 }
@@ -285,7 +374,7 @@ function processShipAction(action, color) {
         default:
             result = { success: false, message: '未知的动作类型' };
     }
-    
+
     // 移除这里的广播，由事件处理函数统一处理
     return result;
 }
@@ -297,59 +386,156 @@ function attackWithShip(ship, action, color) {
     if (!isValidAttackPosition(ship, action.targetX, action.targetY, color)) {
         return { success: false, message: '无效的攻击位置' };
     }
-    
+
     // 掷骰子决定攻击力
     const diceRoll = Math.floor(Math.random() * 6) + 1;
     let attackPower = 0;
-    
+
     if (diceRoll === 1) attackPower = 1;
     else if (diceRoll === 2) attackPower = 2;
     else if (diceRoll === 6) attackPower = ship.size; // 6点为满伤害
     else attackPower = 0; // 3-5点没有攻击力
-    
+
+    // 查找目标船只（即使没有伤害也要识别目标）
+    const targetColor = color === 'red' ? 'blue' : 'red';
+    const targetShips = gameState.ships[targetColor];
+    let targetShipName = null;
+    let targetShipId = null;
+    let sunk = false;
+    let damageDealt = 0;
+    let targetHpBefore = 0;
+    let targetHpAfter = 0;
+
     if (attackPower > 0) {
-        // 查找目标位置的船只
-        const targetColor = color === 'red' ? 'blue' : 'red';
-        const targetShips = gameState.ships[targetColor];
-        
         for (const targetShip of targetShips) {
             if (!targetShip.placed || targetShip.sunk) continue;
-            
+
             for (let i = 0; i < targetShip.size; i++) {
                 const targetX = targetShip.direction === 'horizontal' ? targetShip.x + i : targetShip.x;
                 const targetY = targetShip.direction === 'vertical' ? targetShip.y + i : targetShip.y;
-                
+
                 if (targetX === action.targetX && targetY === action.targetY) {
+                    targetShipName = targetShip.name;
+                    targetShipId = targetShip.id;
+                    targetHpBefore = targetShip.health;
                     // 造成伤害
                     targetShip.health = Math.max(0, targetShip.health - attackPower);
-                    
+                    targetHpAfter = targetShip.health;
+                    damageDealt = attackPower;
+
                     if (targetShip.health <= 0) {
                         targetShip.sunk = true;
+                        sunk = true;
                         console.log(`船只 ${targetShip.id} 被击沉！`);
                     } else {
                         console.log(`船只 ${targetShip.id} 受到 ${attackPower} 点伤害，剩余生命值: ${targetShip.health}`);
                     }
-                    
+
                     break;
                 }
             }
         }
+    } else {
+        // 没打出伤害，但也识别一下被攻击格子所属的船只（用于战报）
+        for (const targetShip of targetShips) {
+            if (!targetShip.placed || targetShip.sunk) continue;
+            for (let i = 0; i < targetShip.size; i++) {
+                const tX = targetShip.direction === 'horizontal' ? targetShip.x + i : targetShip.x;
+                const tY = targetShip.direction === 'vertical' ? targetShip.y + i : targetShip.y;
+                if (tX === action.targetX && tY === action.targetY) {
+                    targetShipName = targetShip.name;
+                    targetShipId = targetShip.id;
+                    targetHpBefore = targetShip.health;
+                    targetHpAfter = targetShip.health;
+                    break;
+                }
+            }
+            if (targetShipName) break;
+        }
     }
-    
+
     ship.actionTaken = true;
+
+    // 记录最后一击信息
+    gameState.lastBlow = {
+        attackerColor: color,
+        attackerColorName: COLOR_NAME[color],
+        attackerShipName: ship.name,
+        attackerShipId: ship.id,
+        targetColor: targetColor,
+        targetColorName: COLOR_NAME[targetColor],
+        targetShipName: targetShipName,
+        targetShipId: targetShipId,
+        targetX: action.targetX,
+        targetY: action.targetY,
+        diceRoll: diceRoll,
+        attackPower: attackPower,
+        damageDealt: damageDealt,
+        sunk: sunk,
+        turn: gameState.turnCount,
+        timestamp: Date.now()
+    };
+
+    // 战报：攻击
+    const attackMsg = attackPower > 0
+        ? `${COLOR_NAME[color]} ${ship.name} 攻击 (${action.targetX},${action.targetY})，掷骰 ${diceRoll}，对 ${targetShipName || '目标'} 造成 ${attackPower} 点伤害${sunk ? '，击沉！' : `（目标剩余 HP ${targetHpAfter}）`}`
+        : `${COLOR_NAME[color]} ${ship.name} 攻击 (${action.targetX},${action.targetY})，掷骰 ${diceRoll}，未命中（目标: ${targetShipName || '未知'}）`;
+
+    addBattleLog({
+        type: 'attack',
+        color: color,
+        colorName: COLOR_NAME[color],
+        shipId: ship.id,
+        shipName: ship.name,
+        targetX: action.targetX,
+        targetY: action.targetY,
+        diceRoll: diceRoll,
+        attackPower: attackPower,
+        damageDealt: damageDealt,
+        targetShipId: targetShipId,
+        targetShipName: targetShipName,
+        targetColor: targetColor,
+        targetColorName: COLOR_NAME[targetColor],
+        targetHpBefore: targetHpBefore,
+        targetHpAfter: targetHpAfter,
+        sunk: sunk,
+        message: attackMsg
+    });
+
+    // 如果击沉了船只，额外添加一条击沉战报
+    if (sunk) {
+        addBattleLog({
+            type: 'sunk',
+            color: color,
+            colorName: COLOR_NAME[color],
+            targetColor: targetColor,
+            targetColorName: COLOR_NAME[targetColor],
+            shipId: targetShipId,
+            shipName: targetShipName,
+            message: `${COLOR_NAME[targetColor]} 的 ${targetShipName} 被击沉！`
+        });
+    }
 
     io.emit('attackResult', {
         success: true,
         targetX: action.targetX,
         targetY: action.targetY,
-        attackPower: attackPower
+        attackPower: attackPower,
+        diceRoll: diceRoll,
+        damageDealt: damageDealt,
+        targetShipName: targetShipName,
+        sunk: sunk
     });
 
-    return { 
-        success: true, 
+    return {
+        success: true,
         message: `攻击！骰子点数: ${diceRoll}, ${attackPower > 0 ? `伤害: ${attackPower}` : '没打中！'}` ,
         attackPower,
         diceRoll,
+        damageDealt,
+        targetShipName,
+        targetShipId,
+        sunk,
         x: action.targetX,
         y: action.targetY
     };
@@ -362,11 +548,30 @@ function rotateShip(ship, action, color) {
     if (!canShipMoveTo(ship.id, newDirection, ship.size, action.targetX, action.targetY)) {
         return { success: false, message: '转向后位置无效' };
     }
+    const oldX = ship.x;
+    const oldY = ship.y;
+    const oldDir = ship.direction;
     // 同时船移动到新的位置
     ship.x = action.targetX;
     ship.y = action.targetY;
     ship.direction = newDirection;
     ship.actionTaken = true;
+
+    addBattleLog({
+        type: 'rotate',
+        color: color,
+        colorName: COLOR_NAME[color],
+        shipId: ship.id,
+        shipName: ship.name,
+        fromX: oldX,
+        fromY: oldY,
+        fromDirection: oldDir,
+        toX: ship.x,
+        toY: ship.y,
+        toDirection: newDirection,
+        message: `${COLOR_NAME[color]} ${ship.name} 转向 (${oldX},${oldY}) ${oldDir === 'horizontal' ? '水平' : '垂直'} → (${ship.x},${ship.y}) ${newDirection === 'horizontal' ? '水平' : '垂直'}`
+    });
+
     return { success: true, message: '转向成功' };
 }
 
@@ -381,13 +586,29 @@ function moveShip(ship, action, color) {
     if (!canShipMoveTo(ship.id, ship.direction, ship.size, action.targetX, action.targetY)) {
         return { success: false, message: '无效的移动位置' };
     }
-    
+
+    const oldX = ship.x;
+    const oldY = ship.y;
     // 更新船只位置
     ship.x = action.targetX;
     ship.y = action.targetY;
     ship.actionTaken = true;
-    
+
     console.log(`船只 ${ship.id} 移动到位置 (${action.targetX}, ${action.targetY})`);
+
+    addBattleLog({
+        type: 'move',
+        color: color,
+        colorName: COLOR_NAME[color],
+        shipId: ship.id,
+        shipName: ship.name,
+        fromX: oldX,
+        fromY: oldY,
+        toX: ship.x,
+        toY: ship.y,
+        message: `${COLOR_NAME[color]} ${ship.name} 移动 (${oldX},${oldY}) → (${ship.x},${ship.y})`
+    });
+
     return { success: true, message: '移动成功' };
 }
 
@@ -395,7 +616,7 @@ function canShipMoveTo(shipid, direction, size, targetX, targetY) {
     console.log(`验证船只 ${shipid} 移动到 (${targetX}, ${targetY})，方向: ${direction}, 大小: ${size}`);
     for (let i = 0; i < size; i++) {
         let checkX, checkY;
-        
+
         if (direction === 'horizontal') {
             checkX = targetX + i;
             checkY = targetY;
@@ -403,28 +624,28 @@ function canShipMoveTo(shipid, direction, size, targetX, targetY) {
             checkX = targetX;
             checkY = targetY + i;
         }
-        
+
         // 检查是否超出棋盘边界
         if (checkX < 0 || checkX >= gameState.boardSize || checkY < 0 || checkY >= gameState.boardSize) {
             console.log('移动位置超出边界');
             return false;
         }
-        
+
         // 检查是否与障碍物重叠
         if (gameState.obstacles.some(obs => obs.x === checkX && obs.y === checkY)) {
             console.log('移动位置与障碍物重叠');
             return false;
         }
-        
+
         // 检查是否与其他船只重叠（排除自己）
         const playerShips = gameState.ships.red.concat(gameState.ships.blue);
         for (const otherShip of playerShips) {
             if (otherShip.id === shipid || !otherShip.placed || otherShip.sunk ) continue;
-            
+
             for (let j = 0; j < otherShip.size; j++) {
                 const otherX = otherShip.direction === 'horizontal' ? otherShip.x + j : otherShip.x;
                 const otherY = otherShip.direction === 'vertical' ? otherShip.y + j : otherShip.y;
-                
+
                 if (otherX === checkX && otherY === checkY) {
                     console.log('移动位置与其他船只重叠');
                     return false;
@@ -518,21 +739,75 @@ function maybeAutoEndTurn(color) {
             const winner = redAllSunk ? 'blue' : 'red';
             const loser = winner === 'red' ? 'blue' : 'red';
             console.log(`游戏结束！${winner} 方获胜！`);
-            io.emit('gameEnded', { winner: winner, loser: loser });
+
+            // 结算信息
+            const settlement = {
+                winner: winner,
+                loser: loser,
+                winnerName: COLOR_NAME[winner],
+                loserName: COLOR_NAME[loser],
+                totalTurns: gameState.turnCount,
+                lastBlow: gameState.lastBlow,
+                // 关键战报摘要：击沉事件
+                sunkEvents: gameState.battleLog.filter(e => e.type === 'sunk').map(e => ({
+                    turn: e.turn,
+                    message: e.message
+                })),
+                // 双方剩余船只
+                redRemaining: gameState.ships.red.filter(s => !s.sunk).length,
+                blueRemaining: gameState.ships.blue.filter(s => !s.sunk).length,
+                redSunk: gameState.ships.red.filter(s => s.sunk).length,
+                blueSunk: gameState.ships.blue.filter(s => s.sunk).length
+            };
+
+            addBattleLog({
+                type: 'gameEnd',
+                winner: winner,
+                winnerName: COLOR_NAME[winner],
+                loser: loser,
+                loserName: COLOR_NAME[loser],
+                totalTurns: gameState.turnCount,
+                message: `游戏结束！${COLOR_NAME[winner]} 获胜！共 ${gameState.turnCount} 回合`
+            });
+
+            io.emit('gameEnded', settlement);
         }, 2200);
     }else if (!hasAvailableActions(color)) {
         console.log(`${color} 方没有可行动的船只，自动结束回合`);
+
+        addBattleLog({
+            type: 'endTurn',
+            color: color,
+            colorName: COLOR_NAME[color],
+            turn: gameState.turnCount,
+            manual: false,
+            message: `${COLOR_NAME[color]} 没有可行动的船只，自动结束回合（第 ${gameState.turnCount} 回合）`
+        });
+
         // 延迟2秒后执行，确保客户端有时间更新消息
         setTimeout(() => {
             // 切换回合
             if (gameState.gamePhase !== 'playing') return;
             if (gameState.currentTurn !== color) return;
             gameState.currentTurn = gameState.currentTurn === 'red' ? 'blue' : 'red';
+            // 每完成一轮（蓝方回合结束）增加回合计数
+            if (gameState.currentTurn === 'red') {
+                gameState.turnCount++;
+            }
             // 重置当前玩家所有船只的行动状态（为下一轮准备）
             resetShipActions(gameState.currentTurn);
+
+            addBattleLog({
+                type: 'turnStart',
+                color: gameState.currentTurn,
+                colorName: COLOR_NAME[gameState.currentTurn],
+                turn: gameState.turnCount,
+                message: `第 ${gameState.turnCount} 回合开始，${COLOR_NAME[gameState.currentTurn]} 行动`
+            });
+
             io.emit('turnChanged', gameState.currentTurn);
             io.emit('gameStateUpdate', gameState);
         }, 2200);
-        
+
     }
 }

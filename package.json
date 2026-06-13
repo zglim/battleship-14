@@ -11,7 +11,15 @@
     "express": "^4.18.2",
     "socket.io": "^4.7.2"
   },
-  "keywords": ["battleship", "game", "nodejs", "websocket"],
+  "keywords": [
+    "battleship",
+    "game",
+    "nodejs",
+    "websocket"
+  ],
   "author": "Battleship Game",
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
+  }
 }

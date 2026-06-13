@@ -13,29 +13,55 @@
             <div id="game-info">
                 <div id="turn-indicator">当前回合: <span id="current-turn">红方</span></div>
                 <div id="game-phase">游戏阶段: <span id="phase-text">准备阶段</span></div>
+                <div id="turn-count-display">回合数: <span id="turn-count">1</span></div>
             </div>
         </div>
 
         <!-- 中央大字消息 -->
         <div id="center-message" class="center-message" aria-hidden="true"></div>
 
-        <div id="game-board-container">
-            <div id="board"></div>
-            <div id="controls">
-                <div id="ship-selection">
-                    <h3>选择船只</h3>
-                    <div id="ship-list" class="ship-list">
-                        <!-- 船只列表将动态生成 -->
+        <!-- 主布局：左侧棋盘+控制，右侧战报+战损 -->
+        <div id="main-layout">
+            <div id="left-panel">
+                <div id="game-board-container">
+                    <div id="board"></div>
+                    <div id="controls">
+                        <div id="ship-selection">
+                            <h3>选择船只</h3>
+                            <div id="ship-list" class="ship-list">
+                                <!-- 船只列表将动态生成 -->
+                            </div>
+                        </div>
+
+                        <div id="action-buttons" style="display: none;">
+                            <h3>船只动作</h3>
+                            <button id="move-btn">移动</button>
+                            <button id="attack-btn">攻击</button>
+                            <button id="rotate-btn">转向</button>
+                            <button id="end-turn-btn">结束回合</button>
+                        </div>
                     </div>
                 </div>
-                
-                <div id="action-buttons" style="display: none;">
-                    <h3>船只动作</h3>
-                    <button id="move-btn">移动</button>
-                    <button id="attack-btn">攻击</button>
-                    <button id="rotate-btn">转向</button>
-                    <button id="end-turn-btn">结束回合</button>
+
+                <!-- 战损概览 -->
+                <div id="casualty-overview">
+                    <div id="red-casualty" class="casualty-panel red-casualty">
+                        <h3>红方战损概览</h3>
+                        <div class="casualty-stats" id="red-casualty-stats"></div>
+                        <div class="casualty-ships" id="red-casualty-ships"></div>
+                    </div>
+                    <div id="blue-casualty" class="casualty-panel blue-casualty">
+                        <h3>蓝方战损概览</h3>
+                        <div class="casualty-stats" id="blue-casualty-stats"></div>
+                        <div class="casualty-ships" id="blue-casualty-ships"></div>
+                    </div>
                 </div>
+            </div>
+
+            <!-- 右侧战报面板 -->
+            <div id="battle-log-panel">
+                <h3>本局战报</h3>
+                <div id="battle-log-list"></div>
             </div>
         </div>
 
@@ -55,7 +81,16 @@
             <div id="dice-value"></div>
         </div>
 
-        <div>Copyright © 2025, nightprince@163.com</div>
+        <!-- 结算面板 -->
+        <div id="settlement-modal" class="settlement-modal" style="display:none;">
+            <div class="settlement-content">
+                <h2 id="settlement-title">游戏结算</h2>
+                <div id="settlement-body"></div>
+                <button id="settlement-close-btn" class="settlement-close-btn">关闭</button>
+            </div>
+        </div>
+
+        <div>Copyright &copy; 2025, nightprince@163.com</div>
     </div>
 
     <!-- 消息提示容器 -->

@@ -50,6 +50,50 @@
             </div>
         </div>
 
+        <!-- 战损概览 -->
+        <div id="damage-overview">
+            <h3>战损概览</h3>
+            <div id="damage-overview-content">
+                <div id="red-damage" class="damage-side red-side">
+                    <h4>红方</h4>
+                    <div class="damage-stats">
+                        <span>存活: <strong id="red-alive">0</strong></span>
+                        <span>击沉: <strong id="red-sunk">0</strong></span>
+                        <span>可行动: <strong id="red-active">0</strong></span>
+                    </div>
+                </div>
+                <div id="blue-damage" class="damage-side blue-side">
+                    <h4>蓝方</h4>
+                    <div class="damage-stats">
+                        <span>存活: <strong id="blue-alive">0</strong></span>
+                        <span>击沉: <strong id="blue-sunk">0</strong></span>
+                        <span>可行动: <strong id="blue-active">0</strong></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 战报面板 -->
+        <div id="battle-log-panel">
+            <h3>本局战报</h3>
+            <div id="battle-log-list"></div>
+        </div>
+
+        <!-- 结算面板 -->
+        <div id="settlement-panel" style="display: none;">
+            <div class="settlement-content">
+                <h2 id="settlement-title">对局结算</h2>
+                <div id="settlement-winner" class="settlement-row"></div>
+                <div id="settlement-turns" class="settlement-row"></div>
+                <div id="settlement-last-attack" class="settlement-row"></div>
+                <div id="settlement-key-logs" class="settlement-row">
+                    <h4>关键战报</h4>
+                    <div id="settlement-key-logs-list"></div>
+                </div>
+                <button id="settlement-close-btn" onclick="document.getElementById('settlement-panel').style.display='none'">关闭</button>
+            </div>
+        </div>
+
         <div id="dice-result" style="display: none;">
             <h3>骰子结果</h3>
             <div id="dice-value"></div>

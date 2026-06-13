@@ -6,9 +6,10 @@ class BattleshipGame {
         this.currentPlayer = null;
 this.gameState = null;
         this.currentAction = null;
-        
+
         this.shipElements = new Map(); // 存储船只DOM元素
-        
+        this.battleLog = []; // 本地战报缓存
+
         this.initializeGame();
         this.setupEventListeners();
     }
@@ -173,6 +174,34 @@ this.gameState = null;
                 this.showExplosionAnimation(result.targetX, result.targetY, result.attackPower);
                 if (text) this.showCenterMessage(text, 2000);
             }
+        });
+
+        // === 战报相关事件监听 ===
+
+        // 接收单条战报更新
+        this.socket.on('battleLogUpdate', (entry) => {
+            this.appendBattleLogEntry(entry);
+        });
+
+        // 接收完整战报历史（刷新/断线恢复）
+        this.socket.on('battleLogHistory', (logEntries) => {
+            this.battleLog = logEntries || [];
+            this.renderBattleLog();
+        });
+
+        // 接收战损概览
+        this.socket.on('damageOverview', (overview) => {
+            this.updateDamageOverview(overview);
+        });
+
+        // 接收结算数据
+        this.socket.on('settlementData', (data) => {
+            this.showSettlementPanel(data);
+        });
+
+        // 连接后主动请求战报（用于刷新恢复）
+        this.socket.on('connect', () => {
+            this.socket.emit('requestBattleLog');
         });
 
     }
@@ -1084,31 +1113,139 @@ this.gameState = null;
         const explosionElement = document.createElement('img');
         explosionElement.src = attackPower > 0 ? '/boom.gif' : '/miss.gif';
         explosionElement.className = 'explosion-animation';
-        
+
         // 设置爆炸动画的样式
         explosionElement.style.position = 'absolute';
         explosionElement.style.width = '120px';
         explosionElement.style.height = '120px';
         explosionElement.style.pointerEvents = 'none';
         explosionElement.style.zIndex = '100';
-        
+
         // 计算爆炸位置（中心点位于攻击位置）
         const cellSize = 40; // 与棋盘单元格大小一致
         const offsetX = x * cellSize + cellSize / 2 - 60; // 120/2 = 60
         const offsetY = y * cellSize + cellSize / 2 - 60; // 120/2 = 60
-        
+
         explosionElement.style.left = `${offsetX}px`;
         explosionElement.style.top = `${offsetY}px`;
-        
+
         // 添加到棋盘
         board.appendChild(explosionElement);
-        
+
         // 1.2秒后移除爆炸动画
         setTimeout(() => {
             if (explosionElement.parentElement) {
                 explosionElement.remove();
             }
         }, 1200);
+    }
+
+    // === 战报相关方法 ===
+
+    // 追加单条战报
+    appendBattleLogEntry(entry) {
+        // 避免重复（根据id去重）
+        if (this.battleLog.some(e => e.id === entry.id)) return;
+        this.battleLog.push(entry);
+        const logList = document.getElementById('battle-log-list');
+        if (!logList) return;
+        logList.appendChild(this.createBattleLogElement(entry));
+        // 自动滚动到底部
+        logList.scrollTop = logList.scrollHeight;
+    }
+
+    // 渲染全部战报（用于刷新恢复）
+    renderBattleLog() {
+        const logList = document.getElementById('battle-log-list');
+        if (!logList) return;
+        logList.innerHTML = '';
+        this.battleLog.forEach(entry => {
+            logList.appendChild(this.createBattleLogElement(entry));
+        });
+        logList.scrollTop = logList.scrollHeight;
+    }
+
+    // 创建战报DOM元素
+    createBattleLogElement(entry) {
+        const el = document.createElement('div');
+        el.className = `battle-log-entry type-${entry.type}`;
+        el.dataset.logId = entry.id;
+
+        const turnLabel = document.createElement('span');
+        turnLabel.className = 'log-turn';
+        turnLabel.textContent = `R${entry.turn || 1}`;
+
+        const msg = document.createElement('span');
+        msg.textContent = entry.message || '';
+
+        el.appendChild(turnLabel);
+        el.appendChild(msg);
+        return el;
+    }
+
+    // 更新战损概览
+    updateDamageOverview(overview) {
+        if (!overview) return;
+        const set = (id, val) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = val;
+        };
+        set('red-alive', overview.red.alive);
+        set('red-sunk', overview.red.sunk);
+        set('red-active', overview.red.active);
+        set('blue-alive', overview.blue.alive);
+        set('blue-sunk', overview.blue.sunk);
+        set('blue-active', overview.blue.active);
+    }
+
+    // 显示结算面板
+    showSettlementPanel(data) {
+        if (!data) return;
+        const panel = document.getElementById('settlement-panel');
+        if (!panel) return;
+
+        const winnerName = data.winner === 'red' ? '红方' : '蓝方';
+        const loserName = data.loser === 'red' ? '红方' : '蓝方';
+
+        const titleEl = document.getElementById('settlement-title');
+        if (titleEl) titleEl.textContent = `${winnerName}获胜！`;
+
+        const winnerEl = document.getElementById('settlement-winner');
+        if (winnerEl) {
+            winnerEl.innerHTML = `<strong>赢家：</strong>${winnerName} &nbsp;|&nbsp; <strong>输家：</strong>${loserName}`;
+        }
+
+        const turnsEl = document.getElementById('settlement-turns');
+        if (turnsEl) {
+            turnsEl.innerHTML = `<strong>总回合数：</strong>${data.totalTurns}`;
+        }
+
+        const lastAttackEl = document.getElementById('settlement-last-attack');
+        if (lastAttackEl) {
+            if (data.lastAttack) {
+                const la = data.lastAttack;
+                const who = la.attackerColor === 'red' ? '红方' : '蓝方';
+                lastAttackEl.innerHTML = `<strong>最后一击：</strong>${who}${la.attackerShipName} 攻击(${la.targetX},${la.targetY})，掷骰${la.diceRoll}点` +
+                    (la.damageDealt > 0
+                        ? `，对${la.targetShipName || '目标'}造成${la.damageDealt}点伤害${la.targetSunk ? '（击沉）' : ''}`
+                        : '，未造成伤害');
+            } else {
+                lastAttackEl.innerHTML = `<strong>最后一击：</strong>无`;
+            }
+        }
+
+        const keyLogsList = document.getElementById('settlement-key-logs-list');
+        if (keyLogsList) {
+            keyLogsList.innerHTML = '';
+            (data.keyLogs || []).forEach(entry => {
+                const item = document.createElement('div');
+                item.className = 'key-log-item';
+                item.textContent = `[R${entry.turn || 1}] ${entry.message || ''}`;
+                keyLogsList.appendChild(item);
+            });
+        }
+
+        panel.style.display = 'flex';
     }
 }
 

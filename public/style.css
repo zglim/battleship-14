@@ -669,3 +669,218 @@ background: #2196F3;
 .ship-health-display.damaged-health {
     background-color: #dc3545; /* 红色 */
 }
+
+/* ===== 战损概览样式 ===== */
+#damage-overview {
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 10px;
+    padding: 15px;
+    margin-bottom: 20px;
+}
+
+#damage-overview h3 {
+    text-align: center;
+    margin-bottom: 12px;
+    font-size: 1.2em;
+}
+
+#damage-overview-content {
+    display: flex;
+    gap: 20px;
+    justify-content: center;
+}
+
+.damage-side {
+    flex: 1;
+    max-width: 300px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    padding: 12px;
+}
+
+.damage-side.red-side h4 {
+    color: #ff6b6b;
+    text-align: center;
+    margin-bottom: 8px;
+}
+
+.damage-side.blue-side h4 {
+    color: #6b8bff;
+    text-align: center;
+    margin-bottom: 8px;
+}
+
+.damage-stats {
+    display: flex;
+    justify-content: space-around;
+    font-size: 14px;
+}
+
+.damage-stats strong {
+    font-size: 1.2em;
+    color: #fff;
+}
+
+/* ===== 战报面板样式 ===== */
+#battle-log-panel {
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 10px;
+    padding: 15px;
+    margin-bottom: 20px;
+    max-height: 400px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+#battle-log-panel h3 {
+    text-align: center;
+    margin-bottom: 10px;
+    font-size: 1.2em;
+}
+
+#battle-log-list {
+    overflow-y: auto;
+    flex: 1;
+    max-height: 340px;
+    padding-right: 6px;
+}
+
+.battle-log-entry {
+    padding: 6px 10px;
+    margin-bottom: 4px;
+    border-radius: 4px;
+    font-size: 13px;
+    line-height: 1.5;
+    background: rgba(255, 255, 255, 0.06);
+    border-left: 3px solid #888;
+    animation: logSlideIn 0.3s ease-out;
+}
+
+.battle-log-entry.type-attack {
+    border-left-color: #e74c3c;
+}
+
+.battle-log-entry.type-shipSunk {
+    border-left-color: #e74c3c;
+    background: rgba(231, 76, 60, 0.15);
+    font-weight: bold;
+}
+
+.battle-log-entry.type-move {
+    border-left-color: #3498db;
+}
+
+.battle-log-entry.type-rotate {
+    border-left-color: #9b59b6;
+}
+
+.battle-log-entry.type-turnChange {
+    border-left-color: #f39c12;
+    background: rgba(243, 156, 18, 0.1);
+}
+
+.battle-log-entry.type-setupComplete,
+.battle-log-entry.type-gameStarted {
+    border-left-color: #2ecc71;
+    background: rgba(46, 204, 113, 0.1);
+}
+
+.battle-log-entry.type-gameEnded {
+    border-left-color: #e67e22;
+    background: rgba(230, 126, 34, 0.2);
+    font-weight: bold;
+}
+
+.battle-log-entry .log-turn {
+    display: inline-block;
+    background: rgba(255, 255, 255, 0.15);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    margin-right: 6px;
+    color: #aaa;
+}
+
+@keyframes logSlideIn {
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+/* ===== 结算面板样式 ===== */
+#settlement-panel {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.75);
+    z-index: 3000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.settlement-content {
+    background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+    border: 2px solid #f39c12;
+    border-radius: 16px;
+    padding: 30px 40px;
+    max-width: 520px;
+    width: 90%;
+    color: white;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+
+.settlement-content h2 {
+    text-align: center;
+    margin-bottom: 20px;
+    font-size: 1.8em;
+    color: #f39c12;
+}
+
+.settlement-row {
+    margin-bottom: 14px;
+    font-size: 15px;
+    line-height: 1.6;
+}
+
+.settlement-row h4 {
+    margin-bottom: 8px;
+    color: #f39c12;
+}
+
+#settlement-key-logs-list {
+    max-height: 150px;
+    overflow-y: auto;
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 6px;
+    padding: 8px;
+}
+
+#settlement-key-logs-list .key-log-item {
+    padding: 4px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: 13px;
+}
+
+#settlement-key-logs-list .key-log-item:last-child {
+    border-bottom: none;
+}
+
+#settlement-close-btn {
+    display: block;
+    margin: 20px auto 0;
+    padding: 10px 30px;
+    background: #f39c12;
+    color: #1e3c72;
+    border: none;
+    border-radius: 6px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+#settlement-close-btn:hover {
+    background: #e67e22;
+}
